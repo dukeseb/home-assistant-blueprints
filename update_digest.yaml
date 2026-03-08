@@ -1,99 +1,42 @@
 blueprint:
-  name: Flexible Update Digest with Critical Alerts
-  description: Notifies you of updates with optional critical alerts and category filtering.
+  name: Daily Update Digest
+  description: Checks for any pending updates at a specific time and sends a notification.
   domain: automation
   source_url: https://raw.githubusercontent.com/dukeseb/home-assistant-blueprints/refs/heads/main/update_digest.yaml
   input:
+    notification_time:
+      name: Notification Time
+      description: What time should the check run?
+      default: "09:00:00"
+      selector:
+        time: {}
     notify_device:
       name: Notification Device
+      description: The device to receive the update alert.
       selector:
         device:
           filter:
             - integration: mobile_app
-    is_critical:
-      name: Critical Notification?
-      default: false
-      selector:
-        boolean: {}
-    enable_schedule:
-      name: Use Scheduled Time?
-      default: true
-      selector:
-        boolean: {}
-    update_time:
-      name: Update Time
-      default: "09:00:00"
-      selector:
-        time: {}
-    check_core:
-      name: Include Core Updates
-      default: true
-      selector:
-        boolean: {}
-    check_os:
-      name: Include OS Updates
-      default: true
-      selector:
-        boolean: {}
-    check_addons:
-      name: Include Add-on Updates
-      default: true
-      selector:
-        boolean: {}
 
-variables:
-  var_check_core: !input check_core
-  var_check_os: !input check_os
-  var_check_addons: !input check_addons
-  var_enable_schedule: !input enable_schedule
-  updates_list: >
-    {% set all_on = states.update | selectattr('state', 'eq', 'on') | list %}
-    {% set ns = namespace(items=[]) %}
-    {% for item in all_on %}
-      {% if var_check_core and 'core_update' in item.entity_id %}
-        {% set ns.items = ns.items + [item.name] %}
-      {% elif var_check_os and 'os_update' in item.entity_id %}
-        {% set ns.items = ns.items + [item.name] %}
-      {% elif var_check_addons and ('addon_' in item.entity_id or 'supervisor' in item.entity_id) %}
-        {% set ns.items = ns.items + [item.name] %}
-      {% elif not ('core' in item.entity_id or 'os' in item.entity_id or 'addon' in item.entity_id) %}
-        {% set ns.items = ns.items + [item.name] %}
-      {% endif %}
-    {% endfor %}
-    {{ ns.items }}
+mode: single
 
 trigger:
   - platform: time
-    at: !input update_time
-    id: "scheduled"
-  - platform: template
-    value_template: "{{ states.update | selectattr('state', 'eq', 'on') | list | count > 0 }}"
-    id: "instant"
+    at: !input notification_time
 
 condition:
   - condition: template
-    value_template: "{{ updates_list | count > 0 }}"
-  - condition: template
-    value_template: >
-      {% if trigger.id == "scheduled" %}
-        {{ var_enable_schedule | bool == true }}
-      {% else %}
-        {{ var_enable_schedule | bool == false }}
-      {% endif %}
+    value_template: "{{ states.update | selectattr('state', 'eq', 'on') | list | count > 0 }}"
 
 action:
   - device_id: !input notify_device
     domain: mobile_app
     type: notify
     title: "Updates Available"
-    message: "There are {{ updates_list | count }} updates waiting: {{ updates_list | join(', ') }}"
+    message: >
+      {% set updates = states.update | selectattr('state', 'eq', 'on') |
+      map(attribute='name') | list %} There are {{ updates | count }} updates
+      waiting: {{ updates | join(', ') }}
     data:
       clickAction: /config/updates
       tag: daily-update-summary
-      push:
-        sound:
-          name: "{% if is_critical | bool %}default{% else %}none{% endif %}"
-          critical: "{{ 1 if is_critical | bool else 0 }}"
-      priority: "{% if is_critical | bool %}high{% else %}default{% endif %}"
-
-mode: queued
