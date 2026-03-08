@@ -1,5 +1,5 @@
 blueprint:
-  name: Update Digest with Critical Alerts
+  name: Flexible Update Digest with Critical Alerts
   description: Notifies you of updates with optional critical alerts and category filtering.
   domain: automation
   source_url: https://raw.githubusercontent.com/dukeseb/home-assistant-blueprints/refs/heads/main/update_digest.yaml
@@ -42,12 +42,10 @@ blueprint:
         boolean: {}
 
 variables:
-  # Load inputs into variables so they are accessible in all blocks
   var_check_core: !input check_core
   var_check_os: !input check_os
   var_check_addons: !input check_addons
   var_enable_schedule: !input enable_schedule
-  
   updates_list: >
     {% set all_on = states.update | selectattr('state', 'eq', 'on') | list %}
     {% set ns = namespace(items=[]) %}
@@ -68,16 +66,13 @@ trigger:
   - platform: time
     at: !input update_time
     id: "scheduled"
-  - platform: state
-    entity_id: all_entities # Note: It's better to use a specific group or domain trigger if possible
-    to: "on"
+  - platform: template
+    value_template: "{{ states.update | selectattr('state', 'eq', 'on') | list | count > 0 }}"
     id: "instant"
 
 condition:
-  # Check 1: Do we have any updates to show?
   - condition: template
     value_template: "{{ updates_list | count > 0 }}"
-  # Check 2: Match the trigger type to the user's preference
   - condition: template
     value_template: >
       {% if trigger.id == "scheduled" %}
@@ -97,7 +92,7 @@ action:
       tag: daily-update-summary
       push:
         sound:
-          name: "{% if is_critical %}default{% else %}none{% endif %}"
+          name: "{% if is_critical | bool %}default{% else %}none{% endif %}"
           critical: "{{ 1 if is_critical | bool else 0 }}"
       priority: "{% if is_critical | bool %}high{% else %}default{% endif %}"
 
