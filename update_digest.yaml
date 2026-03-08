@@ -2,6 +2,7 @@ blueprint:
   name: Update Digest with Critical Alerts
   description: Notifies you of updates with optional critical alerts and category filtering.
   domain: automation
+  source_url: https://raw.githubusercontent.com/dukeseb/home-assistant-blueprints/refs/heads/main/update_digest.yaml
   input:
     notify_device:
       name: Notification Device
@@ -11,7 +12,6 @@ blueprint:
             - integration: mobile_app
     is_critical:
       name: Critical Notification?
-      description: If enabled, the alert will bypass silent mode and play at max volume.
       default: false
       selector:
         boolean: {}
@@ -42,26 +42,23 @@ blueprint:
         boolean: {}
 
 variables:
-  # Load inputs into variables for the template engine
-  check_core: !input check_core
-  check_os: !input check_os
-  check_addons: !input check_addons
-  is_critical: !input is_critical
-  enable_schedule: !input enable_schedule
+  # Load inputs into variables so they are accessible in all blocks
+  var_check_core: !input check_core
+  var_check_os: !input check_os
+  var_check_addons: !input check_addons
+  var_enable_schedule: !input enable_schedule
   
-  # Logic to filter updates based on your selections
   updates_list: >
     {% set all_on = states.update | selectattr('state', 'eq', 'on') | list %}
     {% set ns = namespace(items=[]) %}
     {% for item in all_on %}
-      {% if check_core and 'core_update' in item.entity_id %}
+      {% if var_check_core and 'core_update' in item.entity_id %}
         {% set ns.items = ns.items + [item.name] %}
-      {% elif check_os and 'os_update' in item.entity_id %}
+      {% elif var_check_os and 'os_update' in item.entity_id %}
         {% set ns.items = ns.items + [item.name] %}
-      {% elif check_addons and ('addon_' in item.entity_id or 'supervisor' in item.entity_id) %}
+      {% elif var_check_addons and ('addon_' in item.entity_id or 'supervisor' in item.entity_id) %}
         {% set ns.items = ns.items + [item.name] %}
       {% elif not ('core' in item.entity_id or 'os' in item.entity_id or 'addon' in item.entity_id) %}
-        {# Include HACS or other updates #}
         {% set ns.items = ns.items + [item.name] %}
       {% endif %}
     {% endfor %}
@@ -71,19 +68,22 @@ trigger:
   - platform: time
     at: !input update_time
     id: "scheduled"
-  - platform: template
-    value_template: "{{ states.update | selectattr('state', 'eq', 'on') | list | count > 0 }}"
+  - platform: state
+    entity_id: all_entities # Note: It's better to use a specific group or domain trigger if possible
+    to: "on"
     id: "instant"
 
 condition:
+  # Check 1: Do we have any updates to show?
   - condition: template
     value_template: "{{ updates_list | count > 0 }}"
+  # Check 2: Match the trigger type to the user's preference
   - condition: template
     value_template: >
       {% if trigger.id == "scheduled" %}
-        {{ enable_schedule == true }}
+        {{ var_enable_schedule | bool == true }}
       {% else %}
-        {{ enable_schedule == false }}
+        {{ var_enable_schedule | bool == false }}
       {% endif %}
 
 action:
@@ -95,14 +95,10 @@ action:
     data:
       clickAction: /config/updates
       tag: daily-update-summary
-      # Critical Notification Logic
       push:
         sound:
           name: "{% if is_critical %}default{% else %}none{% endif %}"
-          critical: "{{ 1 if is_critical else 0 }}"
-          volume: "{% if is_critical %}1.0{% else %}0.5{% endif %}"
-      # Android specific priority
-      priority: "{% if is_critical %}high{% else %}default{% endif %}"
-      ttl: 0
+          critical: "{{ 1 if is_critical | bool else 0 }}"
+      priority: "{% if is_critical | bool %}high{% else %}default{% endif %}"
 
 mode: queued
